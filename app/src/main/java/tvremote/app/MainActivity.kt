@@ -237,8 +237,9 @@ private fun TouchPad() {
                 center.snapTo(0.82f)
                 center.animateTo(1f, bounce)
             } else {
-                nudge.nudgeTo(b, nudgeBy)
-                nudge.animateTo(Offset.Zero, spring(dampingRatio = 0.35f, stiffness = Spring.StiffnessMedium))
+                // Glide out and settle back without overshoot; an underdamped return wobbles.
+                nudge.animateTo(unit(b) * nudgeBy, spring(stiffness = Spring.StiffnessHigh))
+                nudge.animateTo(Offset.Zero, spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMedium))
             }
         }
     }
@@ -319,8 +320,6 @@ private fun TouchPad() {
         }
     }
 }
-
-private suspend fun Animatable<Offset, *>.nudgeTo(direction: Button, by: Float) = snapTo(unit(direction) * by)
 
 private fun unit(b: Button) = when (b) {
     Button.Left -> Offset(-1f, 0f)
