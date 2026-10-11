@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A remote with a round touch pad and two buttons, inside the adaptive-icon safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FFFFFF" android:fillType="evenOdd"
+        android:pathData="M48,26H60A8,8 0 0 1 68,34V74A8,8 0 0 1 60,82H48A8,8 0 0 1 40,74V34A8,8 0 0 1 48,26Z
+            M54,32A9,9 0 1 0 54,50A9,9 0 1 0 54,32Z
+            M54,57A3.5,3.5 0 1 0 54,64A3.5,3.5 0 1 0 54,57Z
+            M54,68A3.5,3.5 0 1 0 54,75A3.5,3.5 0 1 0 54,68Z" />
+</vector>
