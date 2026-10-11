@@ -32,7 +32,10 @@ enum class Button(val code: Int) {
     VolumeUp(8), VolumeDown(9), Siri(10), Screensaver(11), Sleep(12), Wake(13), PlayPause(14),
 }
 
-class CompanionException(message: String) : IOException(message)
+open class CompanionException(message: String) : IOException(message)
+
+/** The TV rejected our credentials or identity: wrong PIN, or a pairing it no longer has. */
+class AuthenticationException(message: String) : CompanionException(message)
 
 /**
  * A Companion protocol connection to an Apple TV (the protocol behind the iPhone's Apple TV
@@ -55,6 +58,13 @@ class Companion(host: String, port: Int, private val log: (String) -> Unit = {})
     /** Events pushed by the device (`_t` = 1), keyed by event name. */
     var onEvent: (String, Map<*, *>) -> Unit = { _, _ -> }
 
+    /** Called once from the reader thread when the connection ends for any reason. */
+    var onClosed: () -> Unit = {}
+
+    /** False once the connection has ended; requests then fail immediately. */
+    @Volatile var isOpen = true
+        private set
+
     private val reader = Thread(::readLoop, "companion-reader").apply { isDaemon = true; start() }
 
     // --- pairing ---
@@ -68,7 +78,7 @@ class Companion(host: String, port: Int, private val log: (String) -> Unit = {})
         val srp = SrpClient(pin(), m2.need(Tlv8.SALT), m2.need(Tlv8.PUBLIC_KEY))
 
         val m4 = auth(PS_NEXT, PS_NEXT, Tlv8.encode(Tlv8.SEQ_NO to byteArrayOf(3), Tlv8.PUBLIC_KEY to srp.publicKey, Tlv8.PROOF to srp.proof), "_pwTy" to 1)
-        if (!srp.verifyServer(m4.need(Tlv8.PROOF))) throw CompanionException("Apple TV proof mismatch")
+        if (!srp.verifyServer(m4.need(Tlv8.PROOF))) throw AuthenticationException("Apple TV proof mismatch")
 
         val seed = randomBytes(32)
         val ourPub = Ed.publicKey(seed)
@@ -106,9 +116,9 @@ class Companion(host: String, port: Int, private val log: (String) -> Unit = {})
 
         val atv = Tlv8.decode(ChaCha.open(key, "PV-Msg02".toByteArray(), m2.need(Tlv8.ENCRYPTED_DATA)))
         val atvId = atv.need(Tlv8.IDENTIFIER)
-        if (!atvId.contentEquals(creds.atvId)) throw CompanionException("connected to a different Apple TV")
+        if (!atvId.contentEquals(creds.atvId)) throw AuthenticationException("connected to a different Apple TV")
         if (!Ed.verify(creds.atvPublicKey, atvPub + atvId + ourPub, atv.need(Tlv8.SIGNATURE))) {
-            throw CompanionException("Apple TV signature invalid")
+            throw AuthenticationException("Apple TV signature invalid")
         }
         val proof = Tlv8.encode(
             Tlv8.IDENTIFIER to creds.clientId,
@@ -140,13 +150,18 @@ class Companion(host: String, port: Int, private val log: (String) -> Unit = {})
             .onFailure { log("TVRCSessionStart not supported: ${it.message}") }
     }
 
-    fun press(button: Button) {
+    fun press(button: Button) = hold(button, 0)
+
+    /** Holds a button down, e.g. Home for ~1 s opens Control Center, Select opens context menus. */
+    fun hold(button: Button, millis: Long) {
         request("_hidC", mapOf("_hBtS" to 1, "_hidC" to button.code))
+        if (millis > 0) Thread.sleep(millis)
         request("_hidC", mapOf("_hBtS" to 2, "_hidC" to button.code))
     }
 
     /** Sends a request (`_t` = 2) and waits for its response (`_t` = 3, matched by `_x`). */
     fun request(id: String, content: Map<String, Any?>): Map<*, *> {
+        if (!isOpen) throw CompanionException("not connected")
         val x = synchronized(this) { xid++ }
         val reply = expect(x)
         send(E_OPACK, Opack.pack(mapOf("_i" to id, "_t" to 2, "_c" to content, "_x" to x)))
@@ -167,7 +182,10 @@ class Companion(host: String, port: Int, private val log: (String) -> Unit = {})
         send(type, Opack.pack(mapOf("_pd" to tlv, *extra)))
         val data = reply.await("pairing step")["_pd"] as? ByteArray ?: throw CompanionException("no pairing data in reply")
         val decoded = Tlv8.decode(data)
-        decoded[Tlv8.ERROR]?.let { throw CompanionException(pairingError(it, decoded)) }
+        decoded[Tlv8.ERROR]?.let {
+            val message = pairingError(it, decoded)
+            throw if (it[0].toInt() == 2) AuthenticationException(message) else CompanionException(message)
+        }
         return decoded
     }
 
@@ -205,8 +223,10 @@ class Companion(host: String, port: Int, private val log: (String) -> Unit = {})
             }
         } catch (e: Exception) {
             val err = if (e is IOException) e else CompanionException("connection failed: $e")
+            isOpen = false
             pending.values.forEach { it.completeExceptionally(err) }
             pending.clear()
+            onClosed()
         }
     }
 
