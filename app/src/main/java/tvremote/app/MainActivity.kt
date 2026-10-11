@@ -22,12 +22,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.VolumeDown
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
@@ -83,6 +84,7 @@ import androidx.compose.material3.ripple
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.layout.offset
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 import tvremote.Button
@@ -143,16 +145,18 @@ private fun RemoteScreen() {
                 verticalArrangement = Arrangement.spacedBy(28.dp),
             ) {
                 TouchPad()
-                Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-                    RoundButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", Button.Menu)
-                    // Holding the TV button opens Control Center, as on the Siri Remote.
-                    RoundButton(Icons.Default.Tv, "Home (hold for Control Center)", Button.Home, holdable = true)
-                    RoundButton(Icons.Default.PlayArrow, "Play/Pause", Button.PlayPause)
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-                    RoundButton(Icons.AutoMirrored.Filled.VolumeDown, "Volume down", Button.VolumeDown)
-                    RoundButton(Icons.Default.PowerSettingsNew, "Sleep", Button.Sleep)
-                    RoundButton(Icons.AutoMirrored.Filled.VolumeUp, "Volume up", Button.VolumeUp)
+                // Siri Remote layout: a volume rocker beside two rows of buttons.
+                Row(horizontalArrangement = Arrangement.spacedBy(28.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(verticalArrangement = Arrangement.spacedBy(ButtonGap)) {
+                        RoundButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", Button.Menu)
+                        RoundButton(Icons.Default.PlayArrow, "Play/Pause", Button.PlayPause)
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(ButtonGap)) {
+                        // Holding the TV button opens Control Center, as on the Siri Remote.
+                        RoundButton(Icons.Default.Tv, "Home (hold for Control Center)", Button.Home, holdable = true)
+                        RoundButton(Icons.Default.PowerSettingsNew, "Sleep", Button.Sleep)
+                    }
+                    VolumeRocker()
                 }
             }
             Spacer(Modifier.weight(1f))
@@ -160,6 +164,9 @@ private fun RemoteScreen() {
     }
     Remote.pinPrompt?.let { PinDialog(it) }
 }
+
+private val ButtonSize = 64.dp
+private val ButtonGap = 28.dp
 
 /** Springy press: squashes under the finger and overshoots on release. */
 private val bounce = spring<Float>(dampingRatio = 0.4f, stiffness = Spring.StiffnessMediumLow)
@@ -338,7 +345,7 @@ private fun RoundButton(icon: ImageVector, label: String, button: Button, holdab
         shape = CircleShape,
         color = MaterialTheme.colorScheme.secondaryContainer,
         contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-        modifier = Modifier.size(64.dp).graphicsLayer { scaleX = scale; scaleY = scale }
+        modifier = Modifier.size(ButtonSize).graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(CircleShape)
             .combinedClickable(
                 interactionSource = interaction,
@@ -352,6 +359,62 @@ private fun RoundButton(icon: ImageVector, label: String, button: Button, holdab
             ),
     ) {
         Box(contentAlignment = Alignment.Center) { Icon(icon, contentDescription = label, modifier = Modifier.size(28.dp)) }
+    }
+}
+
+/**
+ * Volume rocker spanning both button rows: + on the top half, - on the bottom. It tilts
+ * toward the pressed half, and holding a half repeats like a physical volume button.
+ */
+@Composable
+private fun VolumeRocker() {
+    val view = LocalView.current
+    val scope = rememberCoroutineScope()
+    var pressed by remember { mutableStateOf<Button?>(null) }
+    val tilt by animateFloatAsState(
+        when (pressed) { Button.VolumeUp -> 14f; Button.VolumeDown -> -14f; else -> 0f }, bounce, label = "tilt",
+    )
+    val scale by animateFloatAsState(if (pressed != null) 0.94f else 1f, bounce, label = "rocker")
+    val colors = MaterialTheme.colorScheme
+    Column(
+        Modifier.size(ButtonSize, ButtonSize * 2 + ButtonGap)
+            .graphicsLayer { rotationX = tilt; scaleX = scale; scaleY = scale; cameraDistance = 12f * density }
+            .clip(RoundedCornerShape(percent = 50))
+            .background(colors.secondaryContainer)
+            .pointerInput(Unit) {
+                detectTapGestures(onPress = { pos ->
+                    val b = if (pos.y < this@pointerInput.size.height / 2f) Button.VolumeUp else Button.VolumeDown
+                    pressed = b
+                    view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    Remote.press(b)
+                    val repeat = scope.launch {
+                        delay(400)
+                        while (true) {
+                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            Remote.press(b)
+                            delay(150)
+                        }
+                    }
+                    tryAwaitRelease()
+                    repeat.cancel()
+                    pressed = null
+                })
+            },
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        for (b in listOf(Button.VolumeUp, Button.VolumeDown)) {
+            Box(
+                Modifier.weight(1f).fillMaxWidth()
+                    .background(if (pressed == b) colors.onSecondaryContainer.copy(alpha = 0.12f) else colors.secondaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    if (b == Button.VolumeUp) Icons.Default.Add else Icons.Default.Remove,
+                    contentDescription = if (b == Button.VolumeUp) "Volume up" else "Volume down",
+                    tint = colors.onSecondaryContainer, modifier = Modifier.size(28.dp),
+                )
+            }
+        }
     }
 }
 
