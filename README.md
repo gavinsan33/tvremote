@@ -3,15 +3,27 @@
 An Apple TV remote for Android, speaking the same Companion protocol as the
 iPhone's built-in Apple TV remote. No Apple account or iPhone needed.
 
-**Status:** early. The protocol core pairs with an Apple TV and sends remote
-buttons; the Android app is in progress.
+## Install
+
+Download the APK from [Releases](https://github.com/gavinsan33/tvremote/releases) on
+your phone and open it (Android 10+, 64-bit). Your phone and the Apple TV must be on the
+same Wi-Fi network.
+
+## Using it
+
+- Pick your Apple TV at the top. The first time, a 4-digit code appears on the TV; type it
+  into the app. The phone then appears on the TV under Remotes and Devices.
+- The round pad works like the Siri Remote: tap an edge for an arrow or the middle to
+  select, or swipe to move (a long swipe keeps going). Hold the middle for context menus.
+- Back, Home (hold it for Control Center), play/pause, volume and sleep buttons.
+- A **TV Remote** Quick Settings tile opens the remote from the notification shade.
 
 ## Layout
 
 - `core/` — the Companion protocol in plain Kotlin (no Android dependencies):
   HomeKit pair-setup/pair-verify, encrypted framing, OPACK, and remote commands.
   It also has a small command-line tool for development.
-- `app/` — the Android app (coming).
+- `app/` — the Android app (Jetpack Compose, Material 3).
 
 ## Command-line tool
 
@@ -29,6 +41,25 @@ The Apple TV's Companion port is advertised over mDNS as `_companion-link._tcp`
 
 Buttons: `up down left right menu select home volumeup volumedown siri
 screensaver sleep wake playpause`.
+
+## Building the app
+
+Needs the Android SDK and JDK 17+.
+
+```sh
+./gradlew :app:assembleDebug       # app/build/outputs/apk/debug/app-debug.apk
+./gradlew :app:assembleRelease     # signed, minified: app/build/outputs/apk/release/app-release.apk
+```
+
+A release build needs a keystore described by `keystore.properties` at the repo root
+(git-ignored):
+
+```properties
+storeFile=/path/to/release.jks
+storePassword=...
+keyAlias=...
+keyPassword=...
+```
 
 ## Credits
 

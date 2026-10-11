@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -13,6 +15,25 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1"
+    }
+    // Release signing comes from keystore.properties at the repo root (git-ignored); see the README.
+    val keystore = rootProject.file("keystore.properties").takeIf { it.exists() }
+        ?.let { f -> Properties().apply { f.inputStream().use(::load) } }
+    signingConfigs {
+        if (keystore != null) create("release") {
+            storeFile = file(keystore.getProperty("storeFile"))
+            storePassword = keystore.getProperty("storePassword")
+            keyAlias = keystore.getProperty("keyAlias")
+            keyPassword = keystore.getProperty("keyPassword")
+        }
+    }
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            signingConfig = signingConfigs.findByName("release")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
