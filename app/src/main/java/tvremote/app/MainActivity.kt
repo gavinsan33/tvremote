@@ -216,14 +216,16 @@ private fun TouchPad() {
     val step = with(density) { 64.dp.toPx() }
     val flick = with(density) { 24.dp.toPx() }
     val nudgeBy = with(density) { 14.dp.toPx() }
+    val followMax = with(density) { 22.dp.toPx() }
     var touching by remember { mutableStateOf(false) }
     val padScale by animateFloatAsState(if (touching) 0.96f else 1f, bounce, label = "pad")
     val nudge = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
     val center = remember { Animatable(1f) }
 
-    fun send(b: Button, long: Boolean = false) {
+    // Taps animate the disc; during a swipe it follows the finger instead (see below).
+    fun send(b: Button, long: Boolean = false, animate: Boolean = true) {
         if (long) Remote.longPress(b) else Remote.press(b)
-        scope.launch {
+        if (animate) scope.launch {
             if (b == Button.Select) {
                 center.snapTo(0.82f)
                 center.animateTo(1f, bounce)
@@ -262,25 +264,33 @@ private fun TouchPad() {
                     )
                 }
                 .pointerInput(Unit) {
-                    var travel = Offset.Zero
+                    var travel = Offset.Zero // since the last step press
+                    var total = Offset.Zero // since the finger went down; drives the disc
                     var moved = false
+                    val settle = {
+                        touching = false
+                        scope.launch { nudge.animateTo(Offset.Zero, spring(dampingRatio = 0.45f, stiffness = Spring.StiffnessMediumLow)) }
+                    }
                     detectDragGestures(
-                        onDragStart = { travel = Offset.Zero; moved = false; touching = true },
+                        onDragStart = { travel = Offset.Zero; total = Offset.Zero; moved = false; touching = true },
                         onDragEnd = {
-                            touching = false
                             if (!moved && travel.getDistance() > flick) {
                                 view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                send(direction(travel))
+                                send(direction(travel), animate = false)
                             }
+                            settle()
                         },
-                        onDragCancel = { touching = false },
+                        onDragCancel = { settle() },
                     ) { change, delta ->
                         change.consume()
                         travel += delta
+                        total += delta
+                        val follow = total * 0.25f
+                        scope.launch { nudge.snapTo(if (follow.getDistance() > followMax) follow * (followMax / follow.getDistance()) else follow) }
                         while (abs(travel.x) >= step || abs(travel.y) >= step) {
                             val b = direction(travel)
                             view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                            send(b)
+                            send(b, animate = false)
                             moved = true
                             travel -= unit(b) * step
                         }
