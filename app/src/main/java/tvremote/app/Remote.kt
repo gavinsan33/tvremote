@@ -90,20 +90,35 @@ object Remote {
         }
     }
 
-    fun addLinuxBox(name: String, host: String, port: Int = 8009) {
-        val box = LinuxBox(name.ifBlank { host }, host, port)
-        boxes.removeAll { it.name == box.name }
-        boxes.add(box)
-        boxes.sortBy { it.name }
-        prefs.edit().putStringSet("boxes", boxes.map { "${it.name}|${it.host}|${it.port}" }.toSet()).apply()
-        select(box)
+    /** Blank name → ask the box for its hostname, falling back to the IP if it can't answer. */
+    fun addLinuxBox(name: String, host: String, port: Int = 8009) = worker.execute {
+        val resolved = name.ifBlank { fetchName(host, port) ?: host }
+        val box = LinuxBox(resolved, host, port)
+        ui {
+            boxes.removeAll { it.name == box.name }
+            boxes.add(box)
+            boxes.sortBy { it.name }
+            saveBoxes()
+            select(box)
+        }
     }
 
     fun removeLinuxBox(box: LinuxBox) {
         boxes.remove(box)
-        prefs.edit().putStringSet("boxes", boxes.map { "${it.name}|${it.host}|${it.port}" }.toSet()).apply()
+        saveBoxes()
         if (selected == box) { selected = null; link = Link.Idle }
     }
+
+    private fun saveBoxes() =
+        prefs.edit().putStringSet("boxes", boxes.map { "${it.name}|${it.host}|${it.port}" }.toSet()).apply()
+
+    private fun fetchName(host: String, port: Int): String? = try {
+        val url = java.net.URL("http://$host:$port/name")
+        (url.openConnection() as java.net.HttpURLConnection).run {
+            connectTimeout = 2000; readTimeout = 2000
+            if (responseCode == 200) inputStream.bufferedReader().readText().trim().ifBlank { null } else null
+        }
+    } catch (e: Exception) { null }
 
     /** (Re)connect to the selected Apple TV, pairing first if it has never been paired. */
     fun connect() {

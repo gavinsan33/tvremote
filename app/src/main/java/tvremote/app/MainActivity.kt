@@ -224,7 +224,7 @@ private fun AddLinuxDialog(onDismiss: () -> Unit) {
                     label = { Text("IP address") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
                 OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true,
-                    label = { Text("Name (optional)") })
+                    label = { Text("Name (blank uses the device's hostname)") })
             }
         },
         confirmButton = { TextButton(onClick = { Remote.addLinuxBox(name, ip); onDismiss() }, enabled = ip.isNotBlank()) { Text("Add") } },
