@@ -13,8 +13,8 @@ android {
         applicationId = "io.github.gavinsan33.tvremote"
         minSdk = 29
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.2.0"
+        versionCode = 6
+        versionName = "0.2.1"
     }
     // Release signing comes from keystore.properties at the repo root (git-ignored); see the README.
     val keystore = rootProject.file("keystore.properties").takeIf { it.exists() }
