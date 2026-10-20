@@ -12,6 +12,7 @@ Then from the app (or to test): curl -s localhost:8009/press?b=up
 No pairing/crypto: this trusts your LAN. Bind to a specific interface or
 firewall the port if that's not good enough for you.
 """
+import socket
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -48,7 +49,13 @@ def tap(name, ms=0):
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        q = parse_qs(urlparse(self.path).query)
+        parsed = urlparse(self.path)
+        if parsed.path == "/name":  # app shows this instead of the IP
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(socket.gethostname().encode() + b"\n")
+            return
+        q = parse_qs(parsed.query)
         name = (q.get("b", [""])[0]).lower()
         ms = int(q.get("ms", ["0"])[0] or 0)
         ok = tap(name, ms)
