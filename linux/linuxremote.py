@@ -73,12 +73,24 @@ def selftest():
     print("ok:", ", ".join(sorted(KEYS)))
 
 
+def lan_ip():
+    """Best-effort LAN address — the IP to type into the app."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))  # no packets sent; just picks the outbound interface
+        return s.getsockname()[0]
+    except OSError:
+        return "<this machine's IP>"
+    finally:
+        s.close()
+
+
 def main():
     if "--selftest" in sys.argv:
         return selftest()
     global ui
     ui = UInput({e.EV_KEY: list(KEYS.values())}, name="tvremote")
-    print(f"listening on :{PORT}  (buttons: {', '.join(sorted(KEYS))})")
+    print(f"listening on http://{lan_ip()}:{PORT}  — add this address in the app")
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
 
 
