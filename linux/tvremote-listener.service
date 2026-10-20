@@ -1,0 +1,12 @@
+[Unit]
+Description=tvremote key listener
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Runs as root for /dev/uinput; injection is kernel-level, so no display/session needed.
+ExecStart=/usr/bin/python3 /usr/local/bin/linuxremote.py
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
