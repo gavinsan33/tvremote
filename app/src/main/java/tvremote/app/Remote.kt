@@ -23,7 +23,10 @@ import java.util.concurrent.TimeUnit
 
 private const val TAG = "tvremote"
 
-data class AppleTv(val name: String, val host: String, val port: Int, val model: String)
+/** Something the remote can drive: an Apple TV (Companion protocol) or a Linux box (HTTP). */
+sealed interface Device { val name: String }
+data class AppleTv(override val name: String, val host: String, val port: Int, val model: String) : Device
+data class LinuxBox(override val name: String, val host: String, val port: Int) : Device
 
 sealed interface Link {
     data object Idle : Link
@@ -49,14 +52,23 @@ object Remote {
     private val myName = Build.MODEL // shown on the TV under Remotes and Devices
 
     val tvs = mutableStateListOf<AppleTv>()
-    var selected by mutableStateOf<AppleTv?>(null)
+    val boxes = mutableStateListOf<LinuxBox>() // manually-added Linux devices
+    var selected by mutableStateOf<Device?>(null)
         private set
     var link by mutableStateOf<Link>(Link.Idle)
         private set
     var pinPrompt by mutableStateOf<PinPrompt?>(null)
 
     fun init(context: Context) {
-        if (!::prefs.isInitialized) prefs = context.applicationContext.getSharedPreferences("tvremote", Context.MODE_PRIVATE)
+        if (::prefs.isInitialized) return
+        prefs = context.applicationContext.getSharedPreferences("tvremote", Context.MODE_PRIVATE)
+        prefs.getStringSet("boxes", emptySet())!!.forEach { s ->
+            val p = s.split("|")
+            if (p.size == 3) boxes.add(LinuxBox(p[0], p[1], p[2].toIntOrNull() ?: 8009))
+        }
+        boxes.sortBy { it.name }
+        // Reselect a saved Linux box on launch; Apple TVs reselect once mDNS finds them.
+        boxes.firstOrNull { it.name == prefs.getString("last", null) }?.let { select(it) }
     }
 
     private fun ui(block: () -> Unit) = main.post(block)
@@ -66,18 +78,37 @@ object Remote {
         tvs.add(t)
         tvs.sortBy { it.name }
         if (selected == null && t.name == prefs.getString("last", null)) select(t)
-        else if (selected?.name == t.name && selected != t) selected = t // address changed
+        else if (selected is AppleTv && selected?.name == t.name && selected != t) selected = t // address changed
     }
 
-    fun select(t: AppleTv) {
-        selected = t
-        prefs.edit().putString("last", t.name).apply()
-        connect()
+    fun select(d: Device) {
+        selected = d
+        prefs.edit().putString("last", d.name).apply()
+        when (d) {
+            is AppleTv -> connect()
+            is LinuxBox -> { worker.execute { tv?.close(); tv = null }; ui { link = Link.Connected } }
+        }
     }
 
-    /** (Re)connect to the selected TV, pairing first if it has never been paired. */
+    fun addLinuxBox(name: String, host: String, port: Int = 8009) {
+        val box = LinuxBox(name.ifBlank { host }, host, port)
+        boxes.removeAll { it.name == box.name }
+        boxes.add(box)
+        boxes.sortBy { it.name }
+        prefs.edit().putStringSet("boxes", boxes.map { "${it.name}|${it.host}|${it.port}" }.toSet()).apply()
+        select(box)
+    }
+
+    fun removeLinuxBox(box: LinuxBox) {
+        boxes.remove(box)
+        prefs.edit().putStringSet("boxes", boxes.map { "${it.name}|${it.host}|${it.port}" }.toSet()).apply()
+        if (selected == box) { selected = null; link = Link.Idle }
+    }
+
+    /** (Re)connect to the selected Apple TV, pairing first if it has never been paired. */
     fun connect() {
-        val target = selected ?: return
+        val target = selected
+        if (target !is AppleTv) return
         if (link == Link.Connecting || link == Link.Pairing) return
         link = Link.Connecting
         worker.execute { open(target) }
@@ -85,7 +116,8 @@ object Remote {
 
     fun disconnect() = worker.execute {
         tv?.close(); tv = null
-        ui { if (link == Link.Connected) link = Link.Idle }
+        // A Linux box has no held socket, so it stays "connected" across backgrounding.
+        ui { if (selected is LinuxBox) link = Link.Connected else if (link == Link.Connected) link = Link.Idle }
     }
 
     fun press(b: Button) = hold(b, 0)
@@ -94,14 +126,34 @@ object Remote {
     fun longPress(b: Button) = hold(b, 1000)
 
     private fun hold(b: Button, millis: Long) {
-        if (tv?.isOpen != true) return connect()
-        worker.execute {
-            val c = tv ?: return@execute
-            try {
-                c.hold(b, millis)
-            } catch (e: Exception) {
-                Log.i(TAG, "press $b failed: $e")
+        when (val d = selected) {
+            is LinuxBox -> worker.execute { sendKey(d, b, millis) }
+            is AppleTv -> {
+                if (tv?.isOpen != true) return connect()
+                worker.execute {
+                    val c = tv ?: return@execute
+                    try {
+                        c.hold(b, millis)
+                    } catch (e: Exception) {
+                        Log.i(TAG, "press $b failed: $e")
+                    }
+                }
             }
+            null -> {}
+        }
+    }
+
+    /** Fire-and-(mostly)-forget HTTP press to the Linux listener (linux/linuxremote.py). */
+    private fun sendKey(box: LinuxBox, b: Button, millis: Long) {
+        try {
+            val url = java.net.URL("http://${box.host}:${box.port}/press?b=${b.name.lowercase()}&ms=$millis")
+            (url.openConnection() as java.net.HttpURLConnection).apply {
+                connectTimeout = 2000; readTimeout = 2000
+                responseCode // sends the request
+                disconnect()
+            }
+        } catch (e: Exception) {
+            Log.i(TAG, "press $b to ${box.name} failed: $e")
         }
     }
 
