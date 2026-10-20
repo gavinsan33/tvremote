@@ -18,6 +18,20 @@ same Wi-Fi network.
 - Back, Home (hold it for Control Center), play/pause, volume and sleep buttons.
 - A **TV Remote** Quick Settings tile opens the remote from the notification shade.
 
+## Controlling a Linux device
+
+The remote can also drive a Linux machine (e.g. a Fedora box running a TV-style app)
+by injecting key presses. On the Linux machine:
+
+```sh
+./linux/install.sh   # installs python3-evdev and a systemd service on port 8009
+```
+
+Then in the app, open the device menu and pick **Add Linux device…**, entering the
+machine's IP. Buttons map to arrow keys, Enter (select), Esc (back), Home, media and
+volume keys. The listener runs as root for `/dev/uinput`, so it works under Wayland
+(GNOME included) or X11. It trusts your LAN — there's no pairing.
+
 ## Layout
 
 - `core/` — the Companion protocol in plain Kotlin (no Android dependencies):

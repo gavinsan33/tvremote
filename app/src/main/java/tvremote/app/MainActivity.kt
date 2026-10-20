@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -174,14 +175,16 @@ private val bounce = spring<Float>(dampingRatio = 0.4f, stiffness = Spring.Stiff
 @Composable
 private fun TvPicker() {
     var open by remember { mutableStateOf(false) }
+    var addLinux by remember { mutableStateOf(false) }
     Box {
         TextButton(onClick = { open = true }) {
-            Text(Remote.selected?.name ?: if (Remote.tvs.isEmpty()) "Looking for Apple TVs…" else "Choose an Apple TV",
+            Text(Remote.selected?.name ?: if (Remote.tvs.isEmpty() && Remote.boxes.isEmpty()) "Looking for devices…" else "Choose a device",
                 style = MaterialTheme.typography.titleLarge)
             Icon(Icons.Default.ArrowDropDown, contentDescription = null)
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            if (Remote.tvs.isEmpty()) DropdownMenuItem(text = { Text("Searching this Wi-Fi network…") }, onClick = {}, enabled = false)
+            if (Remote.tvs.isEmpty() && Remote.boxes.isEmpty())
+                DropdownMenuItem(text = { Text("Searching this Wi-Fi network…") }, onClick = {}, enabled = false)
             Remote.tvs.forEach { tv ->
                 DropdownMenuItem(
                     text = { Text(tv.name) },
@@ -189,8 +192,44 @@ private fun TvPicker() {
                     onClick = { open = false; Remote.select(tv) },
                 )
             }
+            Remote.boxes.forEach { box ->
+                DropdownMenuItem(
+                    text = { Text(box.name) },
+                    leadingIcon = { Icon(Icons.Default.Tv, contentDescription = null) },
+                    trailingIcon = { Icon(Icons.Default.Remove, "Forget", Modifier.clickable { Remote.removeLinuxBox(box) }) },
+                    onClick = { open = false; Remote.select(box) },
+                )
+            }
+            DropdownMenuItem(
+                text = { Text("Add Linux device…") },
+                leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
+                onClick = { open = false; addLinux = true },
+            )
         }
     }
+    if (addLinux) AddLinuxDialog(onDismiss = { addLinux = false })
+}
+
+@Composable
+private fun AddLinuxDialog(onDismiss: () -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var ip by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add Linux device") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Enter the device's IP address. It must be running linuxremote.py on port 8009.")
+                OutlinedTextField(value = ip, onValueChange = { ip = it.trim() }, singleLine = true,
+                    label = { Text("IP address") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true,
+                    label = { Text("Name (optional)") })
+            }
+        },
+        confirmButton = { TextButton(onClick = { Remote.addLinuxBox(name, ip); onDismiss() }, enabled = ip.isNotBlank()) { Text("Add") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
